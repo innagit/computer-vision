@@ -13,41 +13,46 @@ kp2, des2 = orb.detectAndCompute(img2,None)             #                    for
 bf = cv2.BFMatcher()
 matches = bf.knnMatch(des1,des2, k=2)                   # match interesting points
 
-matSrc = []                                             # sort by distance
+matDist = []                                            # sort by distance
 for n, (match1, match2) in enumerate(matches):
-    matSrc.append([match1.queryIdx, match1.trainIdx, match1.distance])
-matSrc = sorted(matSrc, key=lambda tup: tup[2])    
+    matDist.append([match1.queryIdx, match1.trainIdx, match1.distance])
+matDist = sorted(matDist, key=lambda tup: tup[2])    
 
 def isSeparated(m):                                     # is separated to points selected already 
     for l in sel:
-        x1, y1 = kp1[matSrc[m][0]].pt
-        x2, y2 = kp1[matSrc[l][0]].pt
+        x1, y1 = kp1[matDist[m][0]].pt
+        x2, y2 = kp1[matDist[l][0]].pt
         if (x1-x2)**2 + (y1-y2)**2 < 1600:  # 40**2     # eucledean distance of 40 pixels
             return False
     return True
 
 sel = []
-src = []
-dst = []
 outliers = []
-for n in range(len(matSrc)):                            # select 8 points separated order by distance
-    if len(src) >= 8:                                   # for fundamental matrix F (fmat)
-        for m in range(n+1, len(matSrc)):               # not selected -> outliers
-            x1, y1 = kp1[matSrc[m][0]].pt
+src = np.zeros((8,2)).astype(int)
+dst = np.zeros((8,2)).astype(int)
+A89 = np.zeros((8,9))                                    # 8x9 matrix for fundamental matrix F 
+row = 0
+for n in range(len(matDist)):                            # select 8 points separated order by distance
+    if row >= 8:                           
+        for m in range(n+1, len(matDist)):               # not selected -> outliers
+            x1, y1 = kp1[matDist[m][0]].pt
             outliers.append([int(x1), int(y1)])
         break
     if isSeparated(n):
         sel.append(n)
-        x1, y1 = kp1[matSrc[n][0]].pt
-        x2, y2 = kp2[matSrc[n][1]].pt
-        src.append([int(x1), int(y1)])
-        dst.append([int(x2), int(y2)])
-src = np.array(src)
-dst = np.array(dst)
+        x1, y1 = kp1[matDist[n][0]].pt
+        x2, y2 = kp2[matDist[n][1]].pt
+        src[row] = [int(x1), int(y1)]
+        dst[row] = [int(x2), int(y2)]
+        A89[row] = [x2*x1, x2*y1, x2, y2*x1, y2*y1, y2, x1, y1, 1]    # row of A89 matrix
+        row +=1
 
-fmat = cv2.findFundamentalMat(src,dst,cv2.FM_LMEDS)[0]  # fundamental matrix by inlier points (src, dst)
-fmat = normalize(fmat, axis=0, norm='l2')               # normalized     (4.3.b.II)
-print fmat
+tol = 0.000001
+U, s, V = np.linalg.svd(A89)
+rank = (s > tol*s[0]).sum()
+fmat = V[rank:].T.copy()                                     # null vector of A89xfmat = [0]
+F = normalize(fmat[:,0].reshape(3,3), axis=0, norm='l2')     # normalized     (4.3.b.II)
+print F
 
 rgb1 = cv2.cvtColor(img1,cv2.COLOR_GRAY2RGB)            # gray to rgb 
 for outlier in outliers:
@@ -65,3 +70,4 @@ for n in range(7):                                      # 7 sets of matching poi
     
 plt.imshow(rgb3)
 plt.show()
+
